@@ -429,7 +429,8 @@ async fn catch_touch(
             match t {
                 Err(_e) => error!("Error fetching touch data"),
                 Ok(n) => {
-                    let p = Point::new(n.x.into(), n.y.into());
+                    // We shouldnt do this 
+                    let p = Point::new(n.y.into(), n.x.into());
                     // Send to Channel touch via Point
                     SHARED.send(p).await;
                 }
