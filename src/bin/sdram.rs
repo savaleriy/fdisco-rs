@@ -149,16 +149,15 @@ async fn main(_spawner: Spawner) {
 
     let mut delay = embassy_time::Delay;
 
-        // Initialise controller and SDRAM
-        let ram_ptr: *mut u8 = sdram.init(&mut delay) as *mut _;
+    // Initialise controller and SDRAM
+    let ram_ptr: *mut u8 = sdram.init(&mut delay) as *mut _;
 
-        info!("SDRAM Initialized at {:x}", ram_ptr as usize);
+    info!("SDRAM Initialized at {:x}", ram_ptr as usize);
 
     unsafe {
         // Convert raw pointer to slice
         // Move Heap to SDRAM!
         HEAP.init(ram_ptr as usize, SDRAM_SIZE)
-
     };
 
     // Dynamic Vec allocation backed by SDRAM
@@ -176,8 +175,8 @@ async fn main(_spawner: Spawner) {
     {
         // SDRAM-backed global allocator (TlsfHeap)
         //   to allocate a Vec<f32> of size N x N in SDRAM
-        const N: usize = 1_000;                // 1 000 x 1 000 ≃ 1 000 000 elements
-        let total_elems = N * N;               // = 1 000 000
+        const N: usize = 1_000; // 1 000 x 1 000 ≃ 1 000 000 elements
+        let total_elems = N * N; // = 1 000 000
         let mut mat: alloc::vec::Vec<f32> = alloc::vec::Vec::with_capacity(total_elems);
 
         // Log where the matrix lives in SDRAM:
@@ -197,12 +196,15 @@ async fn main(_spawner: Spawner) {
         info!("Matrix checksum = {=f32}", checksum);
 
         let corners = [
-            mat[0],                             // (0,0)
-            mat[N - 1],                         // (0,999)
-            mat[total_elems - N],               // (999,0)
-            mat[total_elems - 1],               // (999,999)
+            mat[0],               // (0,0)
+            mat[N - 1],           // (0,999)
+            mat[total_elems - N], // (999,0)
+            mat[total_elems - 1], // (999,999)
         ];
-        info!("Corners = [{=f32}, {=f32}, {=f32}, {=f32}]", corners[0], corners[1], corners[2], corners[3]);
+        info!(
+            "Corners = [{=f32}, {=f32}, {=f32}, {=f32}]",
+            corners[0], corners[1], corners[2], corners[3]
+        );
     };
 
     loop {

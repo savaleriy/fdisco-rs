@@ -6,8 +6,8 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-use defmt::*;
 use core::fmt::Write;
+use defmt::*;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 
@@ -42,15 +42,13 @@ bind_interrupts!(struct Irqs {
     USART6 => usart::InterruptHandler<peripherals::USART6>;
 });
 
-
-
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     // Initialize and create handle for device peripherals
     let p = embassy_stm32::init(Default::default());
 
     //Configure UART
-     #[rustfmt::skip]
+    #[rustfmt::skip]
     let mut usart = Uart::new(
         p.USART6,
         p.PC7,      // RX
@@ -82,7 +80,7 @@ async fn main(spawner: Spawner) {
         if let Ok(_) = usart.read(&mut buf).await {
             // Echo back what we received
             usart.write(&buf).await.unwrap();
-            
+
             // Also log via defmt
             if buf[0] == b'\r' {
                 info!("Received carriage return");

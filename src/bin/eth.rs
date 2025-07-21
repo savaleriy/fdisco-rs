@@ -88,7 +88,8 @@ async fn main(spawner: Spawner) -> ! {
 
     // Init network stack
     static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
-    let (stack, runner) = embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
+    let (stack, runner) =
+        embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
 
     // Launch network task
     unwrap!(spawner.spawn(net_task(runner)));

@@ -10,7 +10,6 @@ use embassy_stm32::{i2c::I2c, time::Hertz};
 
 use embassy_time::{Delay, Timer};
 
-
 use ft5336;
 
 use {defmt_rtt as _, panic_probe as _};

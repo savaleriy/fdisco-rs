@@ -55,6 +55,11 @@ embedded-alloc = { version = "0.5.1", git = "https://github.com/rust-embedded/em
 embedded-layout = "0.4"
 kolibri-embedded-gui = { git = "https://github.com/Yandrik/kolibri", branch = "main" }
 heapless = "0.8.0"
+ft5336 = "0.2.0"
+static_cell = "2.1.1"
+
+[features]
+starter = []
 
 [profile.release]
 debug = 2
@@ -64,4 +69,3 @@ lto = "fat"
 # [[example]]
 # name = "blinky"
 # path = "examples/blinky.rs"
-

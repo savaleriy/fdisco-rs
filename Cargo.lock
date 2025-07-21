@@ -603,9 +603,11 @@ dependencies = [
  "embedded-hal 1.0.0",
  "embedded-io-async",
  "embedded-layout",
+ "ft5336",
  "heapless",
  "kolibri-embedded-gui",
  "panic-probe",
+ "static_cell",
  "stm32-fmc",
 ]
 
@@ -629,6 +631,15 @@ name = "foldhash"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
+
+[[package]]
+name = "ft5336"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "432cd93aa1378ad78d4e1048e9dba7622cfde09f04eb9b261ca6dcf0d358a3d4"
+dependencies = [
+ "embedded-hal 0.2.7",
+]
 
 [[package]]
 name = "futures-core"
@@ -931,6 +942,15 @@ name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
+
+[[package]]
+name = "static_cell"
+version = "2.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0530892bb4fa575ee0da4b86f86c667132a94b74bb72160f58ee5a4afec74c23"
+dependencies = [
+ "portable-atomic",
+]
 
 [[package]]
 name = "stm32-fmc"

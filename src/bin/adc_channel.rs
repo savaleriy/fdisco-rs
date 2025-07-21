@@ -12,17 +12,14 @@ use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::{Channel, Sender};
 use embassy_time::{Duration, Ticker};
 
-
 const VREFINT_CAL_MV: u32 = 1200;
-
-
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     info!("Starting float-voltage ADC example...");
 
     let p = embassy_stm32::init(Default::default());
-    let mut adc : Adc = Adc::new(p.ADC1);
+    let mut adc: Adc = Adc::new(p.ADC1);
     adc.set_resolution(Resolution::BITS12);
     adc.set_sample_time(SampleTime::CYCLES480);
 
