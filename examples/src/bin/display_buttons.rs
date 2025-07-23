@@ -145,7 +145,7 @@ use embedded_graphics::geometry::{Dimensions, Size};
 use embedded_graphics::mono_font::iso_8859_14::FONT_10X20;
 use embedded_graphics::mono_font::MonoTextStyle;
 use embedded_graphics::pixelcolor::RgbColor;
-use embedded_graphics::primitives::{Circle, Primitive, PrimitiveStyle, Rectangle, Triangle};
+use embedded_graphics::primitives::{Primitive, PrimitiveStyle, Rectangle};
 use embedded_graphics::text::Text;
 use embedded_graphics::Drawable;
 use embedded_layout::align::{horizontal, vertical, Align};
@@ -154,16 +154,18 @@ use embedded_layout::object_chain::Chain;
 
 use {defmt_rtt as _, panic_probe as _};
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, defmt::Format)]
 enum ButtonEvent {
-    Start,
-    Stop,
-    Reset,
-    Config,
+    D0,
+    D1,
+    D2,
+    D3,
 }
 
 static BUTTON_EVENTS: Channel<ThreadModeRawMutex, ButtonEvent, 32> = Channel::new();
 
+
+// GUI Buttons
 struct Button<'a> {
     area: Rectangle,
     text: &'a str,
@@ -191,37 +193,39 @@ impl<'a> Button<'a> {
     }
 
     fn check_touch(&mut self, point: Point) -> bool {
-        if self.area.contains(point) {
-            let was_pressed = self.is_pressed;
-            self.is_pressed = !self.is_pressed;
-            if !was_pressed && self.is_pressed {
-                return true; // Only trigger on rising edge (press)
-            }
-        }
-        false
+        self.area.contains(point)
     }
 
     fn draw(&self, display: &mut DisplayBuffer) {
-        // Draw button rectangle
         let fill_color = if self.is_pressed {
-            self.pressed_color
+            Rgb888::GREEN
         } else {
-            self.released_color
+            Rgb888::RED
         };
+
+        let text = if self.is_pressed {
+            alloc::format!("{}: ON", self.text)
+        } else {
+            alloc::format!("{}: OFF", self.text)
+        };
+
+        let text_style = MonoTextStyle::new(&FONT_10X20, Rgb888::BLACK);
+
         self.area
             .into_styled(PrimitiveStyle::with_fill(fill_color))
             .draw(display)
             .unwrap();
 
-        // Center text in the button
-        let text_size = Text::new(self.text, Point::zero(), self.text_style)
+        let text_size = Text::new(&text, Point::zero(), text_style)
             .bounding_box()
             .size;
+
         let text_position = Point::new(
             self.area.top_left.x + (self.area.size.width as i32 - text_size.width as i32) / 2,
             self.area.top_left.y + (self.area.size.height as i32 - text_size.height as i32) / 2,
         );
-        Text::new(self.text, text_position, self.text_style)
+
+        Text::new(&text, text_position, text_style)
             .draw(display)
             .unwrap();
     }
@@ -378,65 +382,84 @@ async fn display_task() -> ! {
 
     let text = Text::new("Simple GUI", Point::zero(), text_style);
 
-    let button_area = Rectangle::new(Point::new(52, 52), Size::new(16, 16));
-
-    let mut button_pressed = false; // Track button state
-
     // Create buttons
     let mut button1 = Button::new(
         Point::new(100, 60),
         Size::new(100, 50),
-        "Start",
+        "D0",
         MonoTextStyle::new(&FONT_10X20, Rgb888::BLACK),
     );
 
     let mut button2 = Button::new(
         Point::new(300, 60),
         Size::new(100, 50),
-        "Stop",
+        "D1",
         MonoTextStyle::new(&FONT_10X20, Rgb888::BLACK),
     );
 
     let mut button3 = Button::new(
         Point::new(100, 130),
         Size::new(100, 50),
-        "Reset",
+        "D2",
         MonoTextStyle::new(&FONT_10X20, Rgb888::BLACK),
     );
 
     let mut button4 = Button::new(
         Point::new(300, 130),
         Size::new(100, 50),
-        "Config",
+        "D3",
         MonoTextStyle::new(&FONT_10X20, Rgb888::BLACK),
     );
+    // Inital State
+    let mut d0_state = false;
+    let mut d1_state = false;
+    let mut d2_state = false;
+    let mut d3_state = false;
 
     let mut active_buffer = 0;
 
     loop {
-        // Check for touch events
+        // Check for touch events from GUI
         if let Ok(raw_point) = SHARED.try_receive() {
             let point = if raw_point.x > 0 && raw_point.y > 0 {
                 Some(raw_point)
             } else {
                 None
             };
-
+            info!("Point {} x {}", raw_point.x, raw_point.y);
             if let Some(p) = point {
                 if button1.check_touch(p) {
-                    BUTTON_EVENTS.send(ButtonEvent::Start).await;
+                    info!("Send D0");
+                    BUTTON_EVENTS.send(ButtonEvent::D0).await;
                 }
                 if button2.check_touch(p) {
-                    BUTTON_EVENTS.send(ButtonEvent::Stop).await;
+                    info!("Send D1");
+                    BUTTON_EVENTS.send(ButtonEvent::D1).await;
                 }
                 if button3.check_touch(p) {
-                    BUTTON_EVENTS.send(ButtonEvent::Reset).await;
+                    info!("Send D2");
+                    BUTTON_EVENTS.send(ButtonEvent::D2).await;
                 }
                 if button4.check_touch(p) {
-                    BUTTON_EVENTS.send(ButtonEvent::Config).await;
+                    info!("Send D3");
+                    BUTTON_EVENTS.send(ButtonEvent::D3).await;
                 }
             }
         }
+        // Grep Status form Hardware
+        if let Ok(event) = PIN_STATE_EVENTS.try_receive() {
+            match event {
+                PinStateEvent::D0(state) => d0_state = state,
+                PinStateEvent::D1(state) => d1_state = state,
+                PinStateEvent::D2(state) => d2_state = state,
+                PinStateEvent::D3(state) => d3_state = state,
+            }
+        }
+        // Update Button State
+        button1.is_pressed = d0_state;
+        button2.is_pressed = d1_state;
+        button3.is_pressed = d2_state;
+        button4.is_pressed = d3_state;
 
         // Switch buffers (double buffering)
         let display = if active_buffer == 0 {
@@ -449,7 +472,6 @@ async fn display_task() -> ! {
 
         display.clear();
 
-        // Draw "Hello World" text at the top
         let layout = LinearLayout::vertical(Chain::new(text))
             .with_alignment(horizontal::Center)
             .arrange()
@@ -475,6 +497,9 @@ async fn display_task() -> ! {
     }
 }
 
+
+static mut DEBOUNCE_COUNTER: u8 = 0;
+
 #[embassy_executor::task]
 async fn catch_touch(
     mut touch: ft5336::Ft5336<'static, I2c<'static, Blocking>>,
@@ -482,53 +507,78 @@ async fn catch_touch(
 ) {
     loop {
         let t = touch.detect_touch(&mut i2c);
-        let mut num: u8 = 0;
         match t {
             Err(e) => error!("Error {} from fetching number of touches", e),
             Ok(n) => {
-                num = n;
-                if num != 0 {};
-            }
-        }
-        if num > 0 {
-            let t = touch.get_touch(&mut i2c, 1);
-            match t {
-                Err(_e) => error!("Error fetching touch data"),
-                Ok(n) => {
-                    // Rotate for dispay proper orientation
-                    let p = Point::new(n.y.into(), n.x.into());
-                    // Send to Channel touch via Point
-                    SHARED.send(p).await;
+                if n > 0 {
+                    let t = touch.get_touch(&mut i2c, 1);
+                    match t {
+                        Err(_) => error!("Error fetching touch data"),
+                        Ok(n) => {
+                            // Debounce: only send touch event if not in debounce state
+                            if unsafe { DEBOUNCE_COUNTER } == 0 {
+                                let p = Point::new(n.y.into(), n.x.into());
+                                SHARED.send(p).await;
+                                unsafe { DEBOUNCE_COUNTER = 10 }; // Set debounce counter
+                            }
+                        }
+                    }
                 }
             }
+        }
+
+        // Decrement debounce counter every 50ms
+        if unsafe { DEBOUNCE_COUNTER } > 0 {
+            unsafe { DEBOUNCE_COUNTER -= 1 };
         }
 
         Timer::after_millis(50).await;
     }
 }
+
+#[derive(Clone, Copy)]
+enum PinStateEvent {
+    D0(bool),
+    D1(bool),
+    D2(bool),
+    D3(bool),
+}
+
+static PIN_STATE_EVENTS: Channel<ThreadModeRawMutex, PinStateEvent, 32> = Channel::new();
+
 #[embassy_executor::task]
-async fn led_task(mut led: Output<'static>) {
+async fn buttons_task(
+    mut D0: Output<'static>,
+    mut D1: Output<'static>,
+    mut D2: Output<'static>,
+    mut D3: Output<'static>,
+) {
+
+    // Init ports on outputs 
     loop {
-        match BUTTON_EVENTS.receive().await {
-            ButtonEvent::Start => {
-                info!("Start button pressed");
-                led.set_high();
+        let event = BUTTON_EVENTS.receive().await;
+        info!("Event {}", event);
+
+        match  event {
+            ButtonEvent::D0 => {
+                D0.toggle();
+                info!("D0 : {}", D0.get_output_level());
+                PIN_STATE_EVENTS.send(PinStateEvent::D0(D0.is_set_high())).await;
             }
-            ButtonEvent::Stop => {
-                info!("Stop button pressed");
-                led.set_low();
+            ButtonEvent::D1 => {
+                D1.toggle();
+                info!("D1 : {}", D1.get_output_level());
+                PIN_STATE_EVENTS.send(PinStateEvent::D1(D1.is_set_high())).await;
             }
-            ButtonEvent::Reset => {
-                info!("Reset button pressed");
-                led.set_high();
-                Timer::after_millis(10).await;
-                led.set_low();
+            ButtonEvent::D2 => {
+                D2.toggle();
+                info!("D2 : {}", D2.get_output_level());
+                PIN_STATE_EVENTS.send(PinStateEvent::D2(D2.is_set_high())).await;
             }
-            ButtonEvent::Config => {
-                info!("Config button pressed");
-                led.set_high();
-                Timer::after_millis(1000).await;
-                led.set_low();
+            ButtonEvent::D3 => {
+                D3.toggle();
+                info!("D3 : {}", D3.get_output_level());
+                PIN_STATE_EVENTS.send(PinStateEvent::D3(D3.is_set_high())).await;
             }
         }
     }
@@ -833,7 +883,14 @@ async fn main(_spawner: Spawner) {
     let touch = ft5336::Ft5336::new(&i2c, 0x38, delay_ref).unwrap();
     spawner.spawn(catch_touch(touch, i2c)).unwrap();
     let led = Output::new(p.PI1, Level::High, Speed::Low);
-    spawner.spawn(led_task(led)).unwrap();
+
+    let mut D0 = Output::new(p.PC7, Level::Low, Speed::Low);
+    let mut D1 = Output::new(p.PC6, Level::Low, Speed::Low);
+    let mut D2 = Output::new(p.PG6, Level::Low, Speed::Low);
+    let mut D3 = Output::new(p.PB4, Level::Low, Speed::Low);
+  
+
+    spawner.spawn(buttons_task(D0, D1, D2, D3)).unwrap();
 
     loop {
         Timer::after_millis(1000).await;
