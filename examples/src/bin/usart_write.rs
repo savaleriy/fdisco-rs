@@ -65,14 +65,14 @@ async fn main(spawner: Spawner) {
     let mut buf = [0u8; 16];
 
     // Spawn async blinking task
-    spawner.spawn(async_task_one()).unwrap();
-    spawner.spawn(async_task_two()).unwrap();
+    spawner.spawn(async_task_one().unwrap());
+    spawner.spawn(async_task_two().unwrap());
 
     loop {
         // Handle channel messages
         if let Ok(val) = SHARED.try_receive() {
             msg.clear();
-            core::writeln!(&mut msg, "Received: {:02}\r\n", val).unwrap();
+            core::writeln!(&mut msg, "{:02}\r\n", val).unwrap();
             usart.write(msg.as_bytes()).await.unwrap();
         }
 

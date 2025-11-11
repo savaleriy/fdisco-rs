@@ -36,8 +36,10 @@ async fn main(_spawner: Spawner) {
     loop {
         // Read data into buffer
         usart.read(&mut buf).await.expect("UART read failed");
+        info!("Read");
 
         // Echo back exactly the read buffer
         usart.write(&buf).await.expect("UART write failed");
+        info!("Write");
     }
 }

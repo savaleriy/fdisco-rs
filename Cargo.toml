@@ -57,11 +57,17 @@ kolibri-embedded-gui = { git = "https://github.com/Yandrik/kolibri", branch = "m
 heapless = "0.8.0"
 ft5336 = "0.2.0"
 static_cell = "2.1.1"
+tinybmp = "0.6.0"
+tinytga = "0.5.0"
 
 [features]
 starter = []
 
 [profile.release]
+opt-level="s"
+lto = "fat"
+
+[profile.dev]
 debug = 2
 opt-level="s"
 lto = "fat"

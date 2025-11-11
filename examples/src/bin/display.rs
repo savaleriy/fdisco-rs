@@ -15,7 +15,7 @@ pub struct DisplayBuffer<'a> {
     pub height: i32,
 }
 
-// To work with Embedded Graphics Crate we should implement DrawTarget
+// To work with Embedded Graphics Crate we should implement DrawTartget
 // For as Display
 // Implement DrawTarget for
 impl embedded_graphics::draw_target::DrawTarget for DisplayBuffer<'_> {
@@ -116,18 +116,6 @@ mod mt48lc4m32b2_6 {
     }
 }
 
-// Touch detector
-use embassy_stm32::mode::Blocking;
-use embassy_stm32::{i2c::I2c, time::Hertz};
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_sync::channel::Channel;
-use embassy_time::{Delay, Timer};
-use embedded_graphics::geometry::Point;
-use ft5336::Ft5336;
-//Declate a channel of 1 Point
-static SHARED: Channel<ThreadModeRawMutex, Point, 1> = Channel::new();
-static mut DELAY: Delay = Delay;
-
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::fmc::Fmc;
@@ -140,6 +128,7 @@ use embassy_stm32::ltdc::{
 use embassy_stm32::pac::ltdc::vals::{Bf1, Bf2, Imr, Pf};
 use embassy_stm32::pac::RCC;
 use embassy_stm32::time::mhz;
+use embassy_time::Timer;
 
 use embedded_graphics::geometry::Size;
 use embedded_graphics::mono_font::{self, ascii, MonoTextStyle};
@@ -150,8 +139,6 @@ use kolibri_embedded_gui::button::Button;
 use kolibri_embedded_gui::checkbox::Checkbox;
 use kolibri_embedded_gui::label::Label;
 use kolibri_embedded_gui::style::medsize_rgb565_style;
-use kolibri_embedded_gui::toggle_button::ToggleButton;
-use kolibri_embedded_gui::ui::Interaction;
 use kolibri_embedded_gui::ui::Ui;
 
 use {defmt_rtt as _, panic_probe as _};
@@ -307,18 +294,19 @@ async fn display_task() -> ! {
 
     pub fn medsize_rgb888_style() -> kolibri_embedded_gui::style::Style<Rgb888> {
         kolibri_embedded_gui::style::Style {
-            background_color: Rgb888::BLACK, // pretty dark gray
+            background_color: Rgb888::new(0x40, 0x80, 0x40), // pretty dark gray
             item_background_color: Rgb888::new(0x20, 0x40, 0x20), // darker gray
             highlight_item_background_color: Rgb888::new(0x10, 0x20, 0x10),
             border_color: Rgb888::WHITE,
             highlight_border_color: Rgb888::WHITE,
-            primary_color: Rgb888::BLACK,
+            primary_color: Rgb888::CSS_DARK_CYAN,
             secondary_color: Rgb888::YELLOW,
             icon_color: Rgb888::WHITE,
             text_color: Rgb888::WHITE,
             default_widget_height: 16,
             border_width: 0,
             highlight_border_width: 1,
+            corner_radius: 1,
             default_font: mono_font::iso_8859_10::FONT_9X15,
             spacing: kolibri_embedded_gui::style::Spacing {
                 item_spacing: Size::new(8, 4),
@@ -331,42 +319,18 @@ async fn display_task() -> ! {
 
     let mut i: i32 = 0;
     let mut active_buffer = 0;
-
-    let mut state = false;
-
-    let mut last_point: Option<Point> = None;
-
     loop {
-        let raw_point = SHARED.receive().await; // Get Point Object
-
-        let point = if raw_point.x > 0 && raw_point.y > 0 {
-            Some(raw_point)
-        } else {
-            None
-        };
-
-        // Switch buffers (double buffering)
-        let display = if active_buffer == 0 {
+        // Switch buffers
+        if active_buffer == 0 {
+            display = &mut display_fb1;
             active_buffer = 1;
-            &mut display_fb1
         } else {
+            display = &mut display_fb2;
             active_buffer = 0;
-            &mut display_fb2
-        };
+        }
 
         // create UI (needs to be done each frame)
         let mut ui = Ui::new_fullscreen(display, medsize_rgb888_style());
-
-        // Create interact
-        let interact = match (point, last_point) {
-            (Some(current), Some(_)) => Interaction::Drag(current), // Continued touch
-            (Some(current), None) => Interaction::Click(current),   // New touch
-            (None, Some(last)) => Interaction::Release(last),
-            (None, None) => Interaction::None, // No touch
-        };
-
-        ui.interact(interact);
-        last_point = point;
 
         // clear UI background (for non-incremental redrawing framebuffered applications)
         ui.clear_background().ok();
@@ -374,29 +338,6 @@ async fn display_task() -> ! {
         // === ACTUAL UI CODE STARTS HERE ===
 
         ui.add(Label::new("Hello world RUST and Embassy").with_font(ascii::FONT_10X20));
-
-        info!("Channel Received data: {}x{}", raw_point.x, raw_point.y);
-        ui.new_row();
-        ui.add(Label::new(
-            alloc::format!("Touch {}x{}", raw_point.x, raw_point.y).as_ref(),
-        ));
-        ui.new_row();
-        ui.new_row();
-
-        if ui.add_horizontal(Button::new("-")).clicked() {
-            i = i.saturating_sub(1);
-            info!("Minus");
-        }
-        ui.add_horizontal(Label::new(alloc::format!("Clicked {} times", i).as_ref()));
-
-        if ui.add_horizontal(Button::new("+")).clicked() {
-            i = i.saturating_add(1);
-            info!("Plus");
-        }
-
-        if ui.add(ToggleButton::new("Toggle Me", &mut state)).changed() {
-            info!("Toggled {}", state);
-        }
 
         // replace the buffer with the new one
         LTDC.layer(0)
@@ -407,37 +348,6 @@ async fn display_task() -> ! {
         LTDC.srcr().modify(|w| w.set_imr(Imr::RELOAD));
 
         Timer::after_millis(20).await;
-    }
-}
-#[embassy_executor::task]
-async fn catch_touch(
-    mut touch: ft5336::Ft5336<'static, I2c<'static, Blocking>>,
-    mut i2c: I2c<'static, Blocking>,
-) {
-    loop {
-        let t = touch.detect_touch(&mut i2c);
-        let mut num: u8 = 0;
-        match t {
-            Err(e) => error!("Error {} from fetching number of touches", e),
-            Ok(n) => {
-                num = n;
-                if num != 0 {};
-            }
-        }
-        if num > 0 {
-            let t = touch.get_touch(&mut i2c, 1);
-            match t {
-                Err(_e) => error!("Error fetching touch data"),
-                Ok(n) => {
-                    // We shouldnt do this 
-                    let p = Point::new(n.y.into(), n.x.into());
-                    // Send to Channel touch via Point
-                    SHARED.send(p).await;
-                }
-            }
-        }
-
-        Timer::after_millis(50).await;
     }
 }
 
@@ -614,6 +524,7 @@ async fn main(_spawner: Spawner) {
     let mut ltdc_b3 = Flex::new(p.PJ15);
     ltdc_b3.set_as_af_unchecked(ltdc_b3_af, DATA_AF);
 
+    // let ltdc_b4_af = p.PG12.af_num();
     let ltdc_b4_af = B4Pin::af_num(&p.PG12);
     let mut ltdc_b4 = Flex::new(p.PG12);
     ltdc_b4.set_as_af_unchecked(ltdc_b4_af, DATA_AF);
@@ -673,10 +584,10 @@ async fn main(_spawner: Spawner) {
 
     // Set the LTDC to 480x272
     LTDC.gcr().modify(|w| {
-        w.set_hspol(embassy_stm32::pac::ltdc::vals::Hspol::ACTIVELOW);
-        w.set_vspol(embassy_stm32::pac::ltdc::vals::Vspol::ACTIVELOW);
-        w.set_depol(embassy_stm32::pac::ltdc::vals::Depol::ACTIVELOW);
-        w.set_pcpol(embassy_stm32::pac::ltdc::vals::Pcpol::RISINGEDGE);
+        w.set_hspol(embassy_stm32::pac::ltdc::vals::Hspol::ACTIVE_LOW);
+        w.set_vspol(embassy_stm32::pac::ltdc::vals::Vspol::ACTIVE_LOW);
+        w.set_depol(embassy_stm32::pac::ltdc::vals::Depol::ACTIVE_LOW);
+        w.set_pcpol(embassy_stm32::pac::ltdc::vals::Pcpol::RISING_EDGE);
     });
 
     // Set Sync signals
@@ -722,15 +633,9 @@ async fn main(_spawner: Spawner) {
     // Start the display task
     let spawner = Spawner::for_current_executor().await;
 
-    spawner.spawn(display_task()).unwrap();
+    spawner.spawn(display_task().unwrap());
 
     let mut led = Output::new(p.PI1, Level::High, Speed::Low);
-
-    let i2c = I2c::new_blocking(p.I2C3, p.PH7, p.PH8, Hertz(50_000), Default::default());
-
-    let delay_ref: &'static mut Delay = unsafe { &mut DELAY };
-    let touch = ft5336::Ft5336::new(&i2c, 0x38, delay_ref).unwrap();
-    spawner.spawn(catch_touch(touch, i2c)).unwrap();
 
     loop {
         led.set_high();

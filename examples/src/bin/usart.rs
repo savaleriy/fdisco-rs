@@ -34,42 +34,64 @@
 #![no_std]
 #![no_main]
 
-use core::fmt::Write;
-
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::usart::{Config, Uart};
+use embassy_stm32::usart::{BufferedUart, Config};
 use embassy_stm32::{bind_interrupts, peripherals, usart};
-use heapless::String;
+use embedded_io_async::{Read, Write};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
-    USART6 => usart::InterruptHandler<peripherals::USART6>;
+    USART6 => usart::BufferedInterruptHandler<peripherals::USART6>;
 });
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
-    let config = Config::default();
+    let mut config = Config::default();
+
+    let mut tx_buf = [0u8; 256];
+    let mut rx_buf = [0u8; 256];
+    config.baudrate = 9600;
 
     #[rustfmt::skip]
-    let mut usart = Uart::new(
+    let mut usart = BufferedUart::new(
         p.USART6,
         p.PC7,      // RX pin
         p.PC6,      // TX pin
+        &mut tx_buf,
+        &mut rx_buf,
         Irqs,       // Interrupt binding
-        p.DMA2_CH6, // DMA channel for TX
-        p.DMA2_CH1, // DMA channel for RX
         config,
     )
     .expect("Failed to initialize USART6");
 
-    for n in 0u32.. {
-        let mut s: String<128> = String::new();
-        core::write!(&mut s, "Hello DMA World {n}!\r\n").unwrap();
+    usart.write_all(b"Hello World\r\n").await.unwrap();
+    info!("wrote Hello, starting echo");
 
-        unwrap!(usart.write(s.as_bytes()).await);
+    let mut buf = [0; 64];
+    let mut pos = 0;
 
-        info!("wrote DMA");
+    loop {
+        // Read one byte at a time
+        let mut byte = [0u8; 1];
+        usart.read_exact(&mut byte).await.unwrap();
+
+        buf[pos] = byte[0];
+        pos += 1;
+
+        // Check for newline to detect end of message
+        if byte[0] == b'\n' || pos >= buf.len() {
+            info!("Read complete message: {} bytes", pos);
+            info!(
+                "Content: {}",
+                core::str::from_utf8(&buf[..pos]).unwrap_or("<non-utf8>")
+            );
+
+            usart.write_all(&buf[..pos]).await.unwrap();
+            info!("Echoed back {} bytes", pos);
+
+            pos = 0; // Reset for next message
+        }
     }
 }

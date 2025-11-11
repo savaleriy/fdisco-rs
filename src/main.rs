@@ -1,4 +1,4 @@
-/*#![no_std]
+#![no_std]
 #![no_main]
 
 // Graphics Driver
@@ -8,6 +8,7 @@ use embedded_graphics::{
     pixelcolor::{IntoStorage, Rgb888},
     Pixel,
 };
+use embedded_graphics::text::LineHeight;
 
 pub struct DisplayBuffer<'a> {
     pub buf: &'a mut [u32],
@@ -55,7 +56,8 @@ impl DisplayBuffer<'_> {
         let pixels = self.width * self.height;
 
         for a in self.buf[..pixels as usize].iter_mut() {
-            *a = 0xFF00_0000u32; // Solid black
+            // *a = 0xFF00_0000u32; // Solid black
+            *a = 0xFFFFFFFFu32; // Solid White
         }
     }
 }
@@ -152,6 +154,10 @@ use embedded_layout::align::{horizontal, vertical, Align};
 use embedded_layout::layout::linear::LinearLayout;
 use embedded_layout::object_chain::Chain;
 
+use embedded_graphics::{image::Image, prelude::*};
+use tinytga::Tga;
+
+
 use {defmt_rtt as _, panic_probe as _};
 
 #[derive(Clone, Copy, defmt::Format)]
@@ -173,6 +179,12 @@ struct Button<'a> {
     is_pressed: bool,
     pressed_color: Rgb888,
     released_color: Rgb888,
+    text_formatter: TextFormatter,
+}
+
+enum TextFormatter {
+    Simple,        // Just show the text
+    OnOff,         // Append ": ON" or ": OFF"
 }
 
 impl<'a> Button<'a> {
@@ -181,6 +193,7 @@ impl<'a> Button<'a> {
         size: Size,
         text: &'a str,
         text_style: MonoTextStyle<'a, Rgb888>,
+        text_formatter: TextFormatter,
     ) -> Self {
         Self {
             area: Rectangle::new(position, size),
@@ -188,46 +201,82 @@ impl<'a> Button<'a> {
             text_style,
             is_pressed: false,
             pressed_color: Rgb888::GREEN,
-            released_color: Rgb888::WHITE,
+            released_color: Rgb888::RED,
+            text_formatter,
         }
     }
 
     fn check_touch(&mut self, point: Point) -> bool {
-        self.area.contains(point)
+        if self.area.contains(point) {
+            self.is_pressed = !self.is_pressed; // Toggle state
+            true
+        } else {
+            false
+        }
     }
 
     fn draw(&self, display: &mut DisplayBuffer) {
         let fill_color = if self.is_pressed {
-            Rgb888::GREEN
+            self.pressed_color
         } else {
-            Rgb888::RED
+            self.released_color
         };
 
-        let text = if self.is_pressed {
-            alloc::format!("{}: ON", self.text)
-        } else {
-            alloc::format!("{}: OFF", self.text)
+        // Format text based on the formatter
+        let display_text = match &self.text_formatter {
+            TextFormatter::Simple => alloc::format!("{}", self.text),
+            TextFormatter::OnOff => {
+                if self.is_pressed {
+                    alloc::format!("{}: ON", self.text)
+                } else {
+                    alloc::format!("{}: OFF", self.text)
+                }
+            }
         };
 
-        let text_style = MonoTextStyle::new(&FONT_10X20, Rgb888::BLACK);
-
+        // Draw button background
         self.area
             .into_styled(PrimitiveStyle::with_fill(fill_color))
             .draw(display)
             .unwrap();
 
-        let text_size = Text::new(&text, Point::zero(), text_style)
-            .bounding_box()
-            .size;
+        // Calculate text position with vertical adjustment
+        let text_bounds = Text::new(&display_text, Point::zero(), self.text_style)
+            .bounding_box();
+
+        // Add a small vertical offset to push text down from the top
+        let vertical_offset = (self.area.size.height as i32 - text_bounds.size.height as i32) / 2;
 
         let text_position = Point::new(
-            self.area.top_left.x + (self.area.size.width as i32 - text_size.width as i32) / 2,
-            self.area.top_left.y + (self.area.size.height as i32 - text_size.height as i32) / 2,
+            self.area.top_left.x + (self.area.size.width as i32 - text_bounds.size.width as i32) / 2,
+            self.area.top_left.y + (self.area.size.height as i32 - text_bounds.size.height as i32) / 2 + vertical_offset,
         );
 
-        Text::new(&text, text_position, text_style)
+        // Draw text
+        Text::new(&display_text, text_position, self.text_style)
             .draw(display)
             .unwrap();
+    }
+}
+
+// Convenience constructors for different button types
+impl<'a> Button<'a> {
+    fn new_simple(
+        position: Point,
+        size: Size,
+        text: &'a str,
+        text_style: MonoTextStyle<'a, Rgb888>,
+    ) -> Self {
+        Self::new(position, size, text, text_style, TextFormatter::Simple)
+    }
+
+    fn new_on_off(
+        position: Point,
+        size: Size,
+        text: &'a str,
+        text_style: MonoTextStyle<'a, Rgb888>,
+    ) -> Self {
+        Self::new(position, size, text, text_style, TextFormatter::OnOff)
     }
 }
 
@@ -235,10 +284,10 @@ impl<'a> Button<'a> {
 async fn display_task() -> ! {
     use embassy_stm32::pac::LTDC;
 
-    info!("Display task started");
+    let var_name = info!("Display task started");
 
     const LCD_X_SIZE: u16 = 480;
-    const LCD_Y_SIZE: u16 = 272;
+    const LCD_Y_SIZE: u16 = 800;
 
     /* Initialize the LCD pixel width and pixel height */
     const WINDOW_X0: u16 = 0;
@@ -378,38 +427,99 @@ async fn display_task() -> ! {
     LTDC.srcr().modify(|w| w.set_imr(Imr::RELOAD));
 
     // Style objects
-    let text_style = MonoTextStyle::new(&FONT_10X20, Rgb888::BLUE);
+    let text_style = MonoTextStyle::new(&FONT_10X20, Rgb888::BLACK);
 
-    let text = Text::new("Simple GUI", Point::zero(), text_style);
+    let text = Text::new("Attenuation", Point::zero(), text_style);
 
     // Create buttons
-    let mut button1 = Button::new(
-        Point::new(100, 60),
-        Size::new(100, 50),
-        "D0",
+    // let mut button1 = Button::new(
+    //     Point::new(100, 60),
+    //     Size::new(120, 50),
+    //     "0.5 dB", // D0
+    //     MonoTextStyle::new(&FONT_10X20, Rgb888::BLACK),
+    // );
+
+    // let mut button2 = Button::new(
+    //     Point::new(300, 60),
+    //     Size::new(120, 50),
+    //     "1 dB", // D1
+    //     MonoTextStyle::new(&FONT_10X20, Rgb888::BLACK),
+    // );
+
+    // let mut button3 = Button::new(
+    //     Point::new(100, 130),
+    //     Size::new(120, 50),
+    //     "2 dB", // D2
+    //     MonoTextStyle::new(&FONT_10X20, Rgb888::BLACK),
+    // );
+
+    // let mut button4 = Button::new(
+    //     Point::new(300, 130),
+    //     Size::new(120, 50),
+    //     "4 dB", //D3
+    //     MonoTextStyle::new(&FONT_10X20, Rgb888::BLACK),
+    // );
+
+
+    // PA EMC
+    // let mut button1 = Button::new(
+    //     Point::new(86, 98),
+    //     Size::new(120, 50),
+    //     "0.5 dB", // D0
+    //     MonoTextStyle::new(&FONT_10X20, Rgb888::BLACK),
+    // );
+    // Med Chamber
+    let mut button1 = Button::new_on_off(
+            Point::new(176, 104),
+            Size::new(120, 50),
+            "RF", // D0
+            MonoTextStyle::new(&FONT_10X20, Rgb888::BLACK),
+        );
+
+    let mut button2 = Button::new_simple(
+        Point::new(40, 206),
+        Size::new(120, 50),
+        "43 dBm", // D1
         MonoTextStyle::new(&FONT_10X20, Rgb888::BLACK),
     );
 
-    let mut button2 = Button::new(
-        Point::new(300, 60),
-        Size::new(100, 50),
-        "D1",
+    let mut button3 = Button::new_simple(
+        Point::new(176, 206),
+        Size::new(120, 50),
+        "45 dBm", // D2
         MonoTextStyle::new(&FONT_10X20, Rgb888::BLACK),
     );
 
-    let mut button3 = Button::new(
-        Point::new(100, 130),
-        Size::new(100, 50),
-        "D2",
+    let mut button4 = Button::new_simple(
+        Point::new(312, 206),
+        Size::new(120, 50),
+        "47 dBm", //D3
         MonoTextStyle::new(&FONT_10X20, Rgb888::BLACK),
     );
 
-    let mut button4 = Button::new(
-        Point::new(300, 130),
-        Size::new(100, 50),
-        "D3",
-        MonoTextStyle::new(&FONT_10X20, Rgb888::BLACK),
-    );
+    // EMC PA
+    // let mut button2 = Button::new(
+    //     Point::new(286, 98),
+    //     Size::new(120, 50),
+    //     "1 dB", // D1
+    //     MonoTextStyle::new(&FONT_10X20, Rgb888::BLACK),
+    // );
+    //
+    // let mut button3 = Button::new(
+    //     Point::new(86, 168),
+    //     Size::new(120, 50),
+    //     "2 dB", // D2
+    //     MonoTextStyle::new(&FONT_10X20, Rgb888::BLACK),
+    // );
+    //
+    // let mut button4 = Button::new(
+    //     Point::new(286, 168),
+    //     Size::new(120, 50),
+    //     "4 dB", //D3
+    //     MonoTextStyle::new(&FONT_10X20, Rgb888::BLACK),
+    // );
+    //
+
     // Inital State
     let mut d0_state = false;
     let mut d1_state = false;
@@ -417,6 +527,17 @@ async fn display_task() -> ! {
     let mut d3_state = false;
 
     let mut active_buffer = 0;
+
+    // Should be on SD-card not in heap!
+    // Should be less than 1 KiB
+    let data = include_bytes!("image/gui_med_com.tga");
+    // let data = include_bytes!("image/tusur_logo_horizontal_main_color_rgb.tga");
+
+    let tga: Tga<Rgb888> = Tga::from_slice(data).unwrap();
+
+    // let logo_pos = Point::new(220, 220);
+
+    let image = Image::new(&tga, Point::new(0, 0));
 
     loop {
         // Check for touch events from GUI
@@ -472,18 +593,23 @@ async fn display_task() -> ! {
 
         display.clear();
 
-        let layout = LinearLayout::vertical(Chain::new(text))
-            .with_alignment(horizontal::Center)
-            .arrange()
-            .align_to(&display_area, horizontal::Center, vertical::Top)
-            .draw(display)
-            .unwrap();
+
+        image.draw(display);
+
+        // let layout = LinearLayout::vertical(Chain::new(text))
+        //     .with_alignment(horizontal::Center)
+        //     .arrange()
+        //     .align_to(&display_area, horizontal::Center, vertical::Top)
+        //     .draw(display)
+        //     .unwrap();
 
         // Draw all buttons
         button1.draw(display);
         button2.draw(display);
         button3.draw(display);
         button4.draw(display);
+
+
 
         // Update LTDC buffer address
         LTDC.layer(0)
@@ -517,6 +643,7 @@ async fn catch_touch(
                         Ok(n) => {
                             // Debounce: only send touch event if not in debounce state
                             if unsafe { DEBOUNCE_COUNTER } == 0 {
+                                // Roteded to Screen !!!
                                 let p = Point::new(n.y.into(), n.x.into());
                                 SHARED.send(p).await;
                                 unsafe { DEBOUNCE_COUNTER = 10 }; // Set debounce counter
@@ -527,12 +654,12 @@ async fn catch_touch(
             }
         }
 
-        // Decrement debounce counter every 50ms
+        // Decrement debounce counter every 10ms
         if unsafe { DEBOUNCE_COUNTER } > 0 {
             unsafe { DEBOUNCE_COUNTER -= 1 };
         }
 
-        Timer::after_millis(50).await;
+        Timer::after_millis(10).await;
     }
 }
 
@@ -896,7 +1023,7 @@ async fn main(_spawner: Spawner) {
         Timer::after_millis(1000).await;
     }
 }
-*/
+/*
 #![no_std]
 #![no_main]
 
@@ -1029,3 +1156,4 @@ async fn main(_spawner: Spawner) {
     ltdc.enable();
 
 }
+*/

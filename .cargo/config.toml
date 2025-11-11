@@ -6,4 +6,5 @@ runner = "probe-rs run --chip STM32F746NGHx --connect-under-reset --speed 4600"
 target = "thumbv7em-none-eabi"
 
 [env]
-DEFMT_LOG = "debug"
+#DEFMT_LOG = "debug"
+DEFMT_LOG = "trace"

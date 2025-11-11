@@ -164,7 +164,6 @@ enum ButtonEvent {
 
 static BUTTON_EVENTS: Channel<ThreadModeRawMutex, ButtonEvent, 32> = Channel::new();
 
-
 // GUI Buttons
 struct Button<'a> {
     area: Rectangle,
@@ -497,7 +496,6 @@ async fn display_task() -> ! {
     }
 }
 
-
 static mut DEBOUNCE_COUNTER: u8 = 0;
 
 #[embassy_executor::task]
@@ -553,32 +551,39 @@ async fn buttons_task(
     mut D2: Output<'static>,
     mut D3: Output<'static>,
 ) {
-
-    // Init ports on outputs 
+    // Init ports on outputs
     loop {
         let event = BUTTON_EVENTS.receive().await;
         info!("Event {}", event);
 
-        match  event {
+        match event {
             ButtonEvent::D0 => {
                 D0.toggle();
                 info!("D0 : {}", D0.get_output_level());
-                PIN_STATE_EVENTS.send(PinStateEvent::D0(D0.is_set_high())).await;
+                PIN_STATE_EVENTS
+                    .send(PinStateEvent::D0(D0.is_set_high()))
+                    .await;
             }
             ButtonEvent::D1 => {
                 D1.toggle();
                 info!("D1 : {}", D1.get_output_level());
-                PIN_STATE_EVENTS.send(PinStateEvent::D1(D1.is_set_high())).await;
+                PIN_STATE_EVENTS
+                    .send(PinStateEvent::D1(D1.is_set_high()))
+                    .await;
             }
             ButtonEvent::D2 => {
                 D2.toggle();
                 info!("D2 : {}", D2.get_output_level());
-                PIN_STATE_EVENTS.send(PinStateEvent::D2(D2.is_set_high())).await;
+                PIN_STATE_EVENTS
+                    .send(PinStateEvent::D2(D2.is_set_high()))
+                    .await;
             }
             ButtonEvent::D3 => {
                 D3.toggle();
                 info!("D3 : {}", D3.get_output_level());
-                PIN_STATE_EVENTS.send(PinStateEvent::D3(D3.is_set_high())).await;
+                PIN_STATE_EVENTS
+                    .send(PinStateEvent::D3(D3.is_set_high()))
+                    .await;
             }
         }
     }
@@ -888,7 +893,6 @@ async fn main(_spawner: Spawner) {
     let mut D1 = Output::new(p.PC6, Level::Low, Speed::Low);
     let mut D2 = Output::new(p.PG6, Level::Low, Speed::Low);
     let mut D3 = Output::new(p.PB4, Level::Low, Speed::Low);
-  
 
     spawner.spawn(buttons_task(D0, D1, D2, D3)).unwrap();
 
